@@ -6,6 +6,7 @@ import type { WorldMapProps } from "./types";
 export default function WorldMap({
   currentRegion,
   questsDone,
+  bossesDefeated,
   onClose,
 }: WorldMapProps) {
   const [sel, setSel] = useState(null);

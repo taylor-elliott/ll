@@ -11,6 +11,16 @@ export const ENT = {
     },
     {
       t: "portal",
+      x: 22,
+      y: 12,
+      to: "minecraft_zone",
+      tx: 3,
+      ty: 5,
+      label: "⛏ Survival Zone",
+    },
+
+    {
+      t: "portal",
       x: 1,
       y: 9,
       to: "archive_city",
@@ -206,6 +216,16 @@ export const ENT = {
       x: 10,
       y: 5,
       text: "READY queue → Scheduler picks → RUNS on CPU → Context switch saves PCB.",
+    },
+    {
+      t: "npc",
+      x: 20,
+      y: 5,
+      em: "🤖",
+      name: "Scheduler Overlord",
+      col: "#e74c3c",
+      lines: ["You've completed all my trials. Now face ME!"],
+      boss: "boss_process",
     },
   ],
   memory_caverns: [

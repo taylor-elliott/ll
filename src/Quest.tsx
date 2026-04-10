@@ -16,15 +16,28 @@ import {
   DEFAULT_XP_MAX,
   REGION_NAMES,
   INTERACTABLE,
+  BOSS_CONFIGS,
 } from "./lib/constants";
 import drawWorld from "./lib/world";
+import {
+  ZONES,
+  isZoneUnlocked,
+  isBossAvailable,
+  getZoneLockReason,
+  getZoneProgress,
+} from "./lib/zoneGating";
 import SettingsPanel from "./components/features/settings/Settings";
 import WorldMap from "./pages/worldmap/WorldMap";
 import { rollLoot, RC } from "./lib/loot";
 import { PromptPanel } from "./components/features/prompt";
+import BossEncounter from "./components/features/boss/Boss";
+import { CraftZone } from "./components/craft";
 
 export default function OSQuest() {
   const canvasRef = useRef(null);
+
+  const bossesDefeatedRef = useRef(null);
+
   const gsRef = useRef({
     px: 10 * TS,
     py: 5 * TS,
@@ -76,12 +89,16 @@ export default function OSQuest() {
   const [binds, setBinds] = useState(DEFAULT_SETTINGS);
   const [gfx, setGfx] = useState(DEFAULT_GFX);
 
+  const [bossesDefeated, setBossesDefeated] = useState<Set<string>>(new Set());
+  const [activeBoss, setActiveBoss] = useState<string | null>(null);
+  const [mcSaveData, setMcSaveData] = useState<any>(null);
+
   const [showPrompt, setShowPrompt] = useState(false);
   const [promptText, setPromptText] = useState("");
   const [promptLog, setPromptLog] = useState([]);
   const showPromptRef = useRef(false);
   showPromptRef.current = showPrompt;
-
+  bossesDefeatedRef.current = bossesDefeated;
   const openedRef = useRef(opened);
   const questsDoneRef = useRef(questsDone);
   const selTileRef = useRef(selTile);
@@ -126,6 +143,8 @@ export default function OSQuest() {
             setOpened(new Set(d.opened || []));
             setQuestsDone(new Set(d.done || []));
             setBookmarks(d.bookmarks || []);
+            setBossesDefeated(new Set(d.bossesDefeated || []));
+            setMcSaveData(d.mcSaveData || null);
             if (d.binds) setBinds(d.binds);
             if (d.gfx) setGfx(d.gfx);
             const g = gsRef.current;
@@ -133,6 +152,10 @@ export default function OSQuest() {
             g.py = d.gpy ?? 5 * TS;
             g.region = d.region || "hub";
             if (d.sandboxTiles) g.sandboxTiles = d.sandboxTiles;
+            g.entities = buildEnts(g.region);
+            g.portalCooldown = 60;
+            setHudRegion(g.region);
+            setScreen("game");
           }
         }
       } catch {}
@@ -158,10 +181,25 @@ export default function OSQuest() {
           sandboxTiles: g.sandboxTiles,
           binds,
           gfx,
+          bossesDefeated: [...bossesDefeated],
+          mcSaveData,
         }),
       );
     } catch {}
-  }, [pname, level, xp, xpMax, inv, opened, questsDone, bookmarks, binds, gfx]);
+  }, [
+    pname,
+    level,
+    xp,
+    xpMax,
+    inv,
+    opened,
+    questsDone,
+    bookmarks,
+    binds,
+    gfx,
+    bossesDefeated,
+    mcSaveData,
+  ]);
   useEffect(() => {
     if (screen === "game") {
       const iv = setInterval(save, 6000);
@@ -192,6 +230,41 @@ export default function OSQuest() {
   }
 
   interactRef.current = (obj) => {
+    if (obj.t === "npc" && obj.boss) {
+      // Check if boss is available
+      if (
+        isBossAvailable(
+          gsRef.current.region,
+          questsDoneRef.current,
+          bossesDefeatedRef.current,
+        )
+      ) {
+        setActiveBoss(obj.boss);
+        setScreen("boss");
+      } else if (bossesDefeatedRef.current.has(obj.boss)) {
+        // Already beaten
+        setDlg({
+          name: obj.name,
+          em: obj.em,
+          col: obj.col,
+          lines: ["You have already proven yourself, champion."],
+        });
+        setDlgI(0);
+        setScreen("dialog");
+      } else {
+        setDlg({
+          name: obj.name,
+          em: obj.em,
+          col: obj.col,
+          lines: [
+            "Complete all quests in this region first, then challenge me.",
+          ],
+        });
+        setDlgI(0);
+        setScreen("dialog");
+      }
+      return;
+    }
     if (obj.t === "npc") {
       setDlg(obj);
       setDlgI(0);
@@ -490,6 +563,27 @@ export default function OSQuest() {
           const ex = e.x * TS + TS / 2,
             ey = e.y * TS + TS / 2;
           if (Math.abs(ptx - ex) < TS * 0.7 && Math.abs(pty - ey) < TS * 0.7) {
+            if (
+              !isZoneUnlocked(
+                e.to,
+                bossesDefeatedRef.current,
+                questsDoneRef.current,
+              )
+            ) {
+              const reason = getZoneLockReason(e.to, bossesDefeatedRef.current);
+              setBanner(`🔒 ${reason || "Zone locked"}`);
+              setTimeout(() => setBanner(null), 2500);
+              g.portalCooldown = 60;
+              // Push player back
+              g.px -= (ptx - ex) * 0.3;
+              g.py -= (pty - ey) * 0.3;
+              break;
+            }
+            // Special: minecraft zone opens the component
+            if (e.to === "minecraft_zone") {
+              setScreen("minecraft");
+              break;
+            }
             g.region = e.to;
             g.px = e.tx * TS;
             g.py = e.ty * TS;
@@ -589,15 +683,6 @@ export default function OSQuest() {
       if (k === binds.settings || k === "escape") {
         e.preventDefault();
         setShowSettings((v) => {
-          if (!v) gsRef.current.keys.clear();
-          return !v;
-        });
-        setShowMap(false);
-        return;
-      }
-      if (k === binds.settings || k === "enter") {
-        e.preventDefault();
-        setShowPrompt((v) => {
           if (!v) gsRef.current.keys.clear();
           return !v;
         });
@@ -1120,7 +1205,61 @@ export default function OSQuest() {
       </div>
     );
   }
+  // After sim screen, before game screen:
+  if (screen === "boss" && activeBoss) {
+    const cfg = BOSS_CONFIGS[activeBoss];
+    return (
+      <BossEncounter
+        bossId={cfg.id}
+        bossName={cfg.name}
+        bossEmoji={cfg.emoji}
+        bossColor={cfg.color}
+        bossHp={cfg.hp}
+        questions={cfg.questions}
+        timeLimit={cfg.timeLimit}
+        playerName={pname}
+        onVictory={() => {
+          setBossesDefeated((prev) => new Set([...prev, activeBoss]));
+          addXP(cfg.hp * 2); // XP reward
+          setActiveBoss(null);
+          setBanner(`🏆 ${cfg.name} defeated! New zone unlocked!`);
+          setTimeout(() => setBanner(null), 3000);
+          setScreen("game");
+        }}
+        onDefeat={() => {
+          setActiveBoss(null);
+          setScreen("game");
+        }}
+        onExit={() => {
+          setActiveBoss(null);
+          setScreen("game");
+        }}
+      />
+    );
+  }
 
+  if (screen === "minecraft") {
+    return (
+      <CraftZone
+        playerName={pname}
+        saveData={mcSaveData}
+        onChange={setMcSaveData}
+        onExit={() => {
+          const g = gsRef.current;
+          g.region = "hub";
+          g.px = 14 * TS;
+          g.py = 17 * TS;
+          g.entities = buildEnts("hub");
+          setHudRegion("hub");
+          setScreen("game");
+        }}
+        onComplete={() => {
+          setBossesDefeated((prev) => new Set([...prev, "boss_survival"]));
+          addXP(500);
+        }}
+      />
+    );
+  }
   // ═══════ GAME SCREEN ═══════
   const activeQuests = (ENT[gsRef.current.region] || []).filter(
     (e) => e.t === "npc" && e.quest && !questsDone.has(e.quest.id),
@@ -1757,6 +1896,7 @@ export default function OSQuest() {
         <WorldMap
           currentRegion={hudRegion}
           questsDone={questsDone}
+          bossesDefeated={bossesDefeated}
           onClose={() => setShowMap(false)}
         />
       )}

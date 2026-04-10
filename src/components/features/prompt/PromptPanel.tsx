@@ -261,10 +261,15 @@ export default function PromptPanel({
       onClose();
       return;
     }
-    if (e.key === "Enter" && text.trim()) {
+    if (e.key === "Enter") {
       e.preventDefault();
-      handleCommand(text.trim());
-      setText("");
+      if (text.trim()) {
+        handleCommand(text.trim());
+        setText("");
+      } else {
+        onClose();
+        return;
+      }
     }
   }
 
