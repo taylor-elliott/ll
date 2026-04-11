@@ -185,6 +185,9 @@ export const DEFAULT_GFX = {
   screenShake: true,
   speed: 150,
   showQuests: true,
+  sfxVolume: 0.5,
+  musicVolume: 0.25,
+  audioMuted: false,
 };
 
 export const REGION_NAMES = {

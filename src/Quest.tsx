@@ -32,6 +32,15 @@ import { rollLoot, RC } from "./lib/loot";
 import { PromptPanel } from "./components/features/prompt";
 import BossEncounter from "./components/features/boss/Boss";
 import { CraftZone } from "./components/craft";
+import {
+  sfx,
+  playMusic,
+  stopMusic,
+  unlockAudio,
+  setMuted as setAudioMuted,
+  setSfxVolume,
+  setMusicVolume,
+} from "./lib/audio";
 
 export default function OSQuest() {
   const canvasRef = useRef(null);
@@ -129,42 +138,40 @@ export default function OSQuest() {
 
   // Save/Load
   useEffect(() => {
-    (async () => {
-      try {
-        const r = await window.storage.get("osq_v9");
-        if (r?.value) {
-          const d = JSON.parse(r.value);
-          if (d.pname) {
-            setPname(d.pname);
-            setLevel(d.level || 1);
-            setXp(d.xp || 0);
-            setXpMax(d.xpMax || 150);
-            setInv(d.inv || []);
-            setOpened(new Set(d.opened || []));
-            setQuestsDone(new Set(d.done || []));
-            setBookmarks(d.bookmarks || []);
-            setBossesDefeated(new Set(d.bossesDefeated || []));
-            setMcSaveData(d.mcSaveData || null);
-            if (d.binds) setBinds(d.binds);
-            if (d.gfx) setGfx(d.gfx);
-            const g = gsRef.current;
-            g.px = d.gpx ?? 10 * TS;
-            g.py = d.gpy ?? 5 * TS;
-            g.region = d.region || "hub";
-            if (d.sandboxTiles) g.sandboxTiles = d.sandboxTiles;
-            g.entities = buildEnts(g.region);
-            g.portalCooldown = 60;
-            setHudRegion(g.region);
-            setScreen("game");
-          }
+    try {
+      const raw = localStorage.getItem("osq_v9");
+      if (raw) {
+        const d = JSON.parse(raw);
+        if (d.pname) {
+          setPname(d.pname);
+          setLevel(d.level || 1);
+          setXp(d.xp || 0);
+          setXpMax(d.xpMax || 150);
+          setInv(d.inv || []);
+          setOpened(new Set(d.opened || []));
+          setQuestsDone(new Set(d.done || []));
+          setBookmarks(d.bookmarks || []);
+          setBossesDefeated(new Set(d.bossesDefeated || []));
+          setMcSaveData(d.mcSaveData || null);
+          if (d.binds) setBinds(d.binds);
+          if (d.gfx) setGfx(d.gfx);
+          const g = gsRef.current;
+          g.px = d.gpx ?? 10 * TS;
+          g.py = d.gpy ?? 5 * TS;
+          g.region = d.region || "hub";
+          if (d.sandboxTiles) g.sandboxTiles = d.sandboxTiles;
+          g.entities = buildEnts(g.region);
+          g.portalCooldown = 60;
+          setHudRegion(g.region);
+          setScreen("game");
         }
-      } catch {}
-    })();
+      }
+    } catch {}
   }, []);
-  const save = useCallback(async () => {
+  const save = useCallback(() => {
     const g = gsRef.current;
     try {
-      await window.storage.set(
+      localStorage.setItem(
         "osq_v9",
         JSON.stringify({
           pname,
@@ -203,27 +210,84 @@ export default function OSQuest() {
   useEffect(() => {
     if (screen === "game") {
       const iv = setInterval(save, 6000);
-      return () => clearInterval(iv);
+      const onHide = () => save();
+      window.addEventListener("beforeunload", onHide);
+      window.addEventListener("pagehide", onHide);
+      document.addEventListener("visibilitychange", onHide);
+      return () => {
+        clearInterval(iv);
+        window.removeEventListener("beforeunload", onHide);
+        window.removeEventListener("pagehide", onHide);
+        document.removeEventListener("visibilitychange", onHide);
+      };
     }
   }, [screen, save]);
+
+  // Background music based on screen + region
+  useEffect(() => {
+    const regionTrack = (region: string): string => {
+      if (region === "hub" || region === "sandbox") return "hub";
+      if (region === "archive_city") return "hub";
+      return "dungeon";
+    };
+    if (screen === "title") {
+      playMusic("title");
+    } else if (screen === "boss") {
+      playMusic("boss");
+    } else if (screen === "game" || screen === "dialog" || screen === "loot") {
+      playMusic(regionTrack(hudRegion));
+    } else if (screen === "minecraft") {
+      playMusic("hub");
+    }
+    // else sim/etc: keep current music
+  }, [screen, hudRegion]);
+
+  // Sync audio volumes with gfx settings
+  useEffect(() => {
+    setSfxVolume(gfx.sfxVolume ?? 0.5);
+    setMusicVolume(gfx.musicVolume ?? 0.25);
+    setAudioMuted(!!gfx.audioMuted);
+  }, [gfx.sfxVolume, gfx.musicVolume, gfx.audioMuted]);
+
+  // Unlock audio on first user interaction (browser autoplay policy)
+  useEffect(() => {
+    const unlock = () => {
+      unlockAudio();
+    };
+    window.addEventListener("pointerdown", unlock, { once: true });
+    window.addEventListener("keydown", unlock, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+    };
+  }, []);
+
+  // Stop music on unmount
+  useEffect(() => {
+    return () => stopMusic();
+  }, []);
 
   function addXP(amt) {
     setXpPop({ amt, k: Date.now() });
     setTimeout(() => setXpPop(null), 1800);
+    sfx.xp();
     setXp((prev) => {
       let nx = prev + amt,
         nl = level,
         nm = xpMax;
+      let leveled = false;
       while (nx >= nm) {
         nx -= nm;
         nl++;
         nm = Math.floor(150 * Math.pow(1.3, nl - 1));
+        leveled = true;
       }
-      if (nl !== level) {
+      if (leveled) {
         setLevel(nl);
         setXpMax(nm);
         setBanner(`🎉 LEVEL UP! Level ${nl}`);
         setTimeout(() => setBanner(null), 2800);
+        sfx.levelUp();
       }
       return nx;
     });
@@ -239,6 +303,7 @@ export default function OSQuest() {
           bossesDefeatedRef.current,
         )
       ) {
+        sfx.bossIntro();
         setActiveBoss(obj.boss);
         setScreen("boss");
       } else if (bossesDefeatedRef.current.has(obj.boss)) {
@@ -266,28 +331,35 @@ export default function OSQuest() {
       return;
     }
     if (obj.t === "npc") {
+      sfx.dialog();
       setDlg(obj);
       setDlgI(0);
       setScreen("dialog");
     } else if (obj.t === "sign") {
+      sfx.dialog();
       setDlg({ name: "Sign", em: "📜", col: "#f0883e", lines: [obj.text] });
       setDlgI(0);
       setScreen("dialog");
     } else if (obj.t === "chest" && !opened.has(obj.id)) {
+      sfx.chest();
       const lt = rollLoot();
       setLoot(lt);
       setOpened((p) => new Set([...p, obj.id]));
       setInv((p) => [...p, lt]);
       addXP(lt.xp);
+      setTimeout(() => sfx.loot(), 250);
       setScreen("loot");
     } else if (obj.t === "sandbox_obj") {
       if (obj.tile === "o_chest" || obj.tile === "o_lootbox") {
+        sfx.chest();
         const lt = rollLoot();
         setLoot(lt);
         setInv((p) => [...p, lt]);
         addXP(lt.xp);
+        setTimeout(() => sfx.loot(), 250);
         setScreen("loot");
       } else {
+        sfx.dialog();
         const lines = MSG[obj.tile] || ["You interact with the object."];
         setDlg({
           name: BUILD_TILES.find((b) => b.id === obj.tile)?.name || "Object",
@@ -303,6 +375,7 @@ export default function OSQuest() {
 
   function advDlg() {
     if (dlgI + 1 < dlg.lines.length) {
+      sfx.dialogAdvance();
       setDlgI(dlgI + 1);
     } else {
       addXP(8);
@@ -314,6 +387,7 @@ export default function OSQuest() {
         } else {
           setQuestsDone((p) => new Set([...p, dlg.quest.id]));
           addXP(dlg.quest.xp);
+          sfx.quest();
           setScreen("game");
         }
       } else {
@@ -344,16 +418,19 @@ export default function OSQuest() {
 
   function simDone(won) {
     if (won && simQ) {
+      sfx.quest();
       setQuestsDone((p) => new Set([...p, simQ.id]));
       addXP(simQ.xp);
       const lt = rollLoot();
       setInv((p) => [...p, lt]);
       setLoot(lt);
       setTimeout(() => {
+        sfx.loot();
         setSim(null);
         setScreen("loot");
       }, 1200);
     } else {
+      sfx.deny();
       setTimeout(() => {
         setSim(null);
         setSimQ(null);
@@ -364,6 +441,8 @@ export default function OSQuest() {
 
   function startGame() {
     if (!nameIn.trim()) return;
+    unlockAudio();
+    sfx.click();
     setPname(nameIn.trim());
     const g = gsRef.current;
     g.region = "hub";
@@ -383,6 +462,8 @@ export default function OSQuest() {
   }
 
   function contGame() {
+    unlockAudio();
+    sfx.click();
     const g = gsRef.current;
     g.entities = buildEnts(g.region);
     g.portalCooldown = 60;
@@ -409,7 +490,7 @@ export default function OSQuest() {
     setShowPrompt(false);
     setScreen("game");
     try {
-      window.storage.delete("osq_v9");
+      localStorage.removeItem("osq_v9");
     } catch {}
   }
 
@@ -574,11 +655,13 @@ export default function OSQuest() {
               setBanner(`🔒 ${reason || "Zone locked"}`);
               setTimeout(() => setBanner(null), 2500);
               g.portalCooldown = 60;
+              sfx.deny();
               // Push player back
               g.px -= (ptx - ex) * 0.3;
               g.py -= (pty - ey) * 0.3;
               break;
             }
+            sfx.portal();
             // Special: minecraft zone opens the component
             if (e.to === "minecraft_zone") {
               setScreen("minecraft");
@@ -1219,6 +1302,7 @@ export default function OSQuest() {
         timeLimit={cfg.timeLimit}
         playerName={pname}
         onVictory={() => {
+          sfx.bossWin();
           setBossesDefeated((prev) => new Set([...prev, activeBoss]));
           addXP(cfg.hp * 2); // XP reward
           setActiveBoss(null);
@@ -1227,6 +1311,7 @@ export default function OSQuest() {
           setScreen("game");
         }}
         onDefeat={() => {
+          sfx.deny();
           setActiveBoss(null);
           setScreen("game");
         }}

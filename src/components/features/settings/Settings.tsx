@@ -206,6 +206,106 @@ export default function SettingsPanel({
               </div>
             </div>
           )}
+          {tab === "audio" && (
+            <div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "8px 0",
+                  borderBottom: "1px solid #161b22",
+                }}
+              >
+                <span style={{ fontSize: 11 }}>Mute All</span>
+                <button
+                  onClick={() =>
+                    setGfx((g) => ({ ...g, audioMuted: !g.audioMuted }))
+                  }
+                  style={{
+                    background: gfx.audioMuted ? "#da3633" : "#238636",
+                    border: "none",
+                    color: "#fff",
+                    borderRadius: 4,
+                    padding: "4px 14px",
+                    cursor: "pointer",
+                    fontSize: 10,
+                    fontWeight: 700,
+                  }}
+                >
+                  {gfx.audioMuted ? "MUTED" : "ON"}
+                </button>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "8px 0",
+                  borderBottom: "1px solid #161b22",
+                }}
+              >
+                <span style={{ fontSize: 11 }}>Sound Effects</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={Math.round((gfx.sfxVolume ?? 0.5) * 100)}
+                  onChange={(e) =>
+                    setGfx((g) => ({ ...g, sfxVolume: +e.target.value / 100 }))
+                  }
+                  style={{ width: 120 }}
+                />
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: "#8b949e",
+                    width: 30,
+                    textAlign: "right",
+                  }}
+                >
+                  {Math.round((gfx.sfxVolume ?? 0.5) * 100)}
+                </span>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  padding: "8px 0",
+                  borderBottom: "1px solid #161b22",
+                }}
+              >
+                <span style={{ fontSize: 11 }}>Music</span>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={Math.round((gfx.musicVolume ?? 0.25) * 100)}
+                  onChange={(e) =>
+                    setGfx((g) => ({
+                      ...g,
+                      musicVolume: +e.target.value / 100,
+                    }))
+                  }
+                  style={{ width: 120 }}
+                />
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: "#8b949e",
+                    width: 30,
+                    textAlign: "right",
+                  }}
+                >
+                  {Math.round((gfx.musicVolume ?? 0.25) * 100)}
+                </span>
+              </div>
+              <div style={{ fontSize: 9, color: "#484f58", marginTop: 12 }}>
+                Audio is procedurally generated (chiptune style) — no downloads.
+              </div>
+            </div>
+          )}
           {tab === "acct" && (
             <div>
               <div style={{ fontSize: 11, marginBottom: 8 }}>
